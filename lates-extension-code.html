@@ -1,0 +1,439 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Dynamic Code Picker</title>
+    <script src="https://www.contentstack.com/sdks/contentstack-ui-extensions/dist/latest/ui-extension-sdk.js"></script>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        padding: 10px;
+      }
+      .search-wrapper {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        padding: 5px;
+        min-height: 40px;
+        cursor: text;
+      }
+      .search-wrapper input {
+        border: none;
+        outline: none;
+        flex: 1;
+        padding: 6px;
+        min-width: 150px;
+        font-size: 14px;
+      }
+      #chips-container {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        margin-top: 10px;
+        min-height: 20px;
+      }
+      .tag {
+        background: #eef6ff;
+        border: 1px solid #3399ff;
+        border-radius: 16px;
+        padding: 4px 8px;
+        display: inline-flex;
+        align-items: center;
+        font-size: 13px;
+      }
+      .remove {
+        margin-left: 6px;
+        cursor: pointer;
+        color: red;
+        font-weight: bold;
+      }
+      ul {
+        list-style: none;
+        padding: 0;
+        margin-top: 4px;
+        max-height: calc(3 * 34px);
+        overflow-y: auto;
+        border-radius: 4px;
+        min-height: 0;
+      }
+      ul.has-results {
+        border: 1px solid #ddd;
+      }
+      li {
+        padding: 8px;
+        cursor: pointer;
+        border-bottom: 1px solid #eee;
+      }
+      li:last-child {
+        border-bottom: none;
+      }
+      li:hover {
+        background: #f0f0f0;
+      }
+      .status-message {
+        color: #d9534f;
+        margin-top: 10px;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 10px;
+      }
+      th,
+      td {
+        border: 1px solid #ddd;
+        padding: 8px;
+        text-align: left;
+      }
+      th {
+        background-color: #f2f2f2;
+      }
+      tr.unavailable {
+        background-color: #fff3f3;
+      }
+    </style>
+  </head>
+
+  <body>
+    <div class="search-wrapper" id="search-wrapper">
+      <input type="text" id="search" placeholder="Search..." />
+    </div>
+
+    <div id="chips-container"></div>
+    <ul id="results"></ul>
+    <div id="status-message" class="status-message"></div>
+    <div id="selected-table"></div>
+    <script>
+      ContentstackUIExtension.init().then(function (extension) {
+        console.log("extenison", extension);
+
+        extension.window.updateHeight();
+
+        const config = extension.field.schema.config || {};
+        const extconfig = extension.config || {};
+        const managementToken = extconfig.management_token || "";
+        const apiUrl = config.api_url;
+
+        const isProductField = extension.field.schema.display_name
+          .toLowerCase()
+          .includes("product");
+
+        // Get UTC date instead of local date
+        const todayUTC = new Date();
+        const day = String(todayUTC.getUTCDate()).padStart(2, "0");
+        const month = String(todayUTC.getUTCMonth() + 1).padStart(2, "0");
+        const year = String(todayUTC.getUTCFullYear());
+        const todayDate = `${day}${month}${year}`;
+        const tokenWithDate = `${managementToken}${todayDate}`;
+        const encodedAuth = btoa(tokenWithDate);
+
+        const statusMessage = document.getElementById("status-message");
+        const searchInput = document.getElementById("search");
+        const resultsList = document.getElementById("results");
+        const chipsContainer = document.getElementById("chips-container");
+        const selectedTableDiv = document.getElementById("selected-table");
+        const searchWrapper = document.getElementById("search-wrapper");
+
+        // Configuration check
+        if (!apiUrl) {
+          statusMessage.innerText =
+            "🚨 Configuration Error: 'api_url' is missing in field config.";
+          extension.window.updateHeight();
+          return;
+        }
+
+        // Utility to ensure data is an array of strings (codes)
+        function normalizeToArray(val) {
+          if (!val) return [];
+          if (Array.isArray(val)) return val;
+          if (typeof val === "string") return [val];
+          return [];
+        }
+
+        // Selected values are an array of code strings: ["CODE1", "CODE2"]
+        let selectedValues = normalizeToArray(extension.field.getData());
+        let latestProductsCache = [];
+
+        // ✅ Get selected location from entry data
+        function getSelectedLocation() {
+          try {
+            console.log("🧩 DEBUG: getSelectedLocation() called");
+
+            // Get content type schema array
+            const schema = extension?.entry?.content_type?.schema || [];
+            console.log("📋 Schema length:", schema.length);
+
+            // Find the location field from schema
+            const locationField = schema.find(
+              (field) => field.uid === "location"
+            );
+            console.log("📍 Found location field schema:", locationField);
+
+            if (!locationField) {
+              console.warn("⚠️ Location field not found in schema.");
+              return null;
+            }
+            // Get value from the field
+            const locationValue = locationField.value || [];
+            console.log("📍 Current selected location value:", locationValue);
+
+            // Return null if empty
+            return locationValue.length > 0 ? locationValue : null;
+          } catch (err) {
+            console.error("❌ Error in getSelectedLocation:", err);
+            return null;
+          }
+        }
+
+        // ✅ Validate selected products availability (NO FILTERING)
+        function validateProductAvailability() {
+          if (!isProductField || selectedValues.length === 0) return;
+          const location = getSelectedLocation();
+          if (!location) return;
+
+          const unavailable = selectedValues.filter((sku) => {
+            const found = latestProductsCache.find((p) => p.sku === sku);
+            return (
+              found && (!found.locations || !found.locations.includes(location))
+            );
+          });
+
+          if (unavailable.length > 0) {
+            const msg = `⚠️ ${unavailableProducts.join(", ")} ${
+              unavailableProducts.length > 1 ? "are" : "is"
+            } not available at the selected location (${location}).`;
+            statusMessage.innerText = msg;
+            console.warn(msg);
+          } else {
+            statusMessage.innerText = "";
+          }
+
+          renderSelectedTable();
+        }
+
+        // ✅ Render table (Product field)
+        function renderSelectedTable() {
+          selectedTableDiv.innerHTML = "";
+          if (!isProductField || selectedValues.length === 0) return;
+
+          const table = document.createElement("table");
+          const header = document.createElement("tr");
+          ["Order", "Product", "Not Available At", "Action"].forEach((h) => {
+            const th = document.createElement("th");
+            th.innerText = h;
+            header.appendChild(th);
+          });
+          table.appendChild(header);
+
+          const location = getSelectedLocation();
+
+          selectedValues.forEach((sku, index) => {
+            const row = document.createElement("tr");
+
+            const orderCell = document.createElement("td");
+            orderCell.innerText = index + 1;
+            row.appendChild(orderCell);
+
+            const productCell = document.createElement("td");
+            productCell.innerText = sku;
+
+            // 🔴 Highlight product name in red if not available for selected location
+            const product = latestProductsCache.find((p) => p.sku === sku);
+            if (
+              product &&
+              location &&
+              (!product.locations || !product.locations.includes(location))
+            ) {
+              productCell.style.color = "red";
+            }
+
+            row.appendChild(productCell);
+
+            const notAvailableCell = document.createElement("td");
+            if (
+              product &&
+              location &&
+              (!product.locations || !product.locations.includes(location))
+            ) {
+              notAvailableCell.innerText = location;
+            } else {
+              notAvailableCell.innerText = "";
+            }
+            row.appendChild(notAvailableCell);
+
+            const actionCell = document.createElement("td");
+            const removeBtn = document.createElement("span");
+            removeBtn.innerText = "Remove";
+            removeBtn.style.cursor = "pointer";
+            removeBtn.style.color = "red";
+            removeBtn.onclick = function () {
+              selectedValues.splice(index, 1);
+              extension.field.setData(selectedValues);
+              renderSelectedTable();
+            };
+            actionCell.appendChild(removeBtn);
+            row.appendChild(actionCell);
+
+            table.appendChild(row);
+          });
+
+          selectedTableDiv.appendChild(table);
+          extension.window.updateHeight();
+        }
+
+        // Function to render the currently selected items as tags
+        // ✅ Render chips (Location field)
+        function renderChips() {
+          chipsContainer.innerHTML = "";
+          selectedTableDiv.innerHTML = "";
+
+          if (isProductField) {
+            renderSelectedTable();
+            return;
+          }
+
+          if (selectedValues.length === 0) {
+            extension.window.updateHeight();
+            return;
+          }
+
+          selectedValues.forEach((code, index) => {
+            const chip = document.createElement("div");
+            chip.className = "tag";
+            chip.innerText = code;
+
+            const removeBtn = document.createElement("span");
+            removeBtn.className = "remove";
+            removeBtn.innerText = "×";
+            removeBtn.onclick = function () {
+              selectedValues.splice(index, 1);
+              extension.field.setData(selectedValues);
+              renderChips();
+            };
+
+            chip.appendChild(removeBtn);
+            chipsContainer.appendChild(chip);
+          });
+          extension.window.updateHeight();
+        }
+
+        // ✅ Render search results (NO LOCATION FILTER)
+        function renderSearchResults(data) {
+          resultsList.innerHTML = "";
+          if (data.length > 0) resultsList.classList.add("has-results");
+          else resultsList.classList.remove("has-results");
+
+          data.forEach((item) => {
+            const displayValue = isProductField ? item.sku : item.code;
+            const li = document.createElement("li");
+            li.innerText = displayValue;
+
+            li.onclick = function () {
+              const value = isProductField ? item.sku : item.code;
+              if (!selectedValues.includes(value)) {
+                selectedValues.push(value);
+                extension.field.setData(selectedValues);
+                if (isProductField) renderSelectedTable();
+                else renderChips();
+                validateProductAvailability();
+              }
+              searchInput.value = "";
+              resultsList.innerHTML = "";
+              resultsList.classList.remove("has-results");
+            };
+
+            resultsList.appendChild(li);
+          });
+          extension.window.updateHeight();
+        }
+
+        // ✅ Handle search input
+        searchInput.addEventListener("input", function () {
+          const query = searchInput.value.toLowerCase();
+          resultsList.innerHTML = "";
+          statusMessage.innerText = "";
+          resultsList.classList.remove("has-results");
+          if (!query) return;
+
+          const paramName = isProductField ? "sku" : "code";
+          const fullUrl = `${apiUrl}?${paramName}=${encodeURIComponent(
+            query
+          )}&currentPage=1&perPage=10`;
+
+          console.log("🔍 Fetching:", fullUrl);
+
+          fetch(fullUrl, {
+            method: "GET",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `${encodedAuth}`,
+            },
+          })
+            .then((res) => res.json())
+            .then((data) => {
+              if (data.success && Array.isArray(data.data)) {
+                latestProductsCache = data.data;
+                renderSearchResults(data.data); // ✅ Show all products
+              } else {
+                renderSearchResults([]);
+              }
+            })
+            .catch((err) => {
+              console.error("❌ API Error:", err);
+              statusMessage.innerText = err.message;
+            });
+        });
+
+        // --- Initial Load and Listener Setup ---
+        renderChips();
+
+        // ✅ If this is a product field, restore product data and validate availability
+        if (isProductField && selectedValues.length > 0) {
+          // Fetch all saved products to restore latestProductsCache and availability info
+          const paramName = "sku";
+          const skuList = selectedValues
+            .map((sku) => encodeURIComponent(sku))
+            .join(",");
+          const restoreUrl = `${apiUrl}?${paramName}=${skuList}`;
+
+          fetch(restoreUrl, {
+            method: "GET",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `${encodedAuth}`,
+            },
+          })
+            .then((res) => res.json())
+            .then((data) => {
+              if (data.success && Array.isArray(data.data)) {
+                latestProductsCache = data.data;
+                renderSelectedTable();
+                validateProductAvailability();
+              }
+            })
+            .catch((err) => console.error("❌ Restore API error:", err));
+        }
+
+        // ✅ Revalidate if location field changes
+        if (isProductField) {
+          extension.entry.onChange(() => {
+            validateProductAvailability();
+          });
+        }
+
+        // Focus on click for better UX
+        searchWrapper.addEventListener("click", () => {
+          searchInput.focus();
+        });
+
+        // Listen for external changes (e.g., collaborator editing)
+        extension.field.onValueChanged(function (newValue) {
+          selectedValues = normalizeToArray(newValue);
+          renderChips();
+        });
+      });
+    </script>
+  </body>
+</html>
