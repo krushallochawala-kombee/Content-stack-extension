@@ -187,25 +187,49 @@
           }
         }
 
-        // ✅ Validate selected products availability (NO FILTERING)
         function validateProductAvailability() {
-          if (!isProductField || selectedValues.length === 0) return;
-          const location = getSelectedLocation();
-          if (!location) return;
+          if (!isProductField || selectedValues.length === 0) {
+            statusMessage.innerText = "";
+            return;
+          }
 
-          const unavailable = selectedValues.filter((sku) => {
-            const found = latestProductsCache.find((p) => p.sku === sku);
-            return (
-              found && (!found.locations || !found.locations.includes(location))
-            );
+          const location = getSelectedLocation();
+          if (!location || location.length === 0) {
+            statusMessage.innerText = "";
+            renderSelectedTable(); // still render clean table
+            return;
+          }
+
+          const selectedLocations = Array.isArray(location)
+            ? location
+            : [location];
+          const unavailableProducts = [];
+
+          selectedValues.forEach((sku) => {
+            const product = latestProductsCache.find((p) => p.sku === sku);
+            if (product) {
+              const productLocations = Array.isArray(product.locations)
+                ? product.locations
+                : [];
+
+              // find which of selected locations are unavailable
+              const unavailableAt = selectedLocations.filter(
+                (loc) => !productLocations.includes(loc)
+              );
+
+              if (unavailableAt.length > 0) {
+                unavailableProducts.push({ sku, unavailableAt });
+              }
+            }
           });
 
-          if (unavailable.length > 0) {
-            const msg = `⚠️ ${unavailableProducts.join(", ")} ${
-              unavailableProducts.length > 1 ? "are" : "is"
-            } not available at the selected location (${location}).`;
-            statusMessage.innerText = msg;
-            console.warn(msg);
+          // 🟥 Show message if unavailable products exist
+          if (unavailableProducts.length > 0) {
+            const msgLines = unavailableProducts.map(
+              (p) =>
+                `${p.sku} not available at selected location`
+            );
+            statusMessage.innerText = msgLines.join("\n");
           } else {
             statusMessage.innerText = "";
           }
@@ -213,12 +237,13 @@
           renderSelectedTable();
         }
 
-        // ✅ Render table (Product field)
         function renderSelectedTable() {
           selectedTableDiv.innerHTML = "";
           if (!isProductField || selectedValues.length === 0) return;
 
           const table = document.createElement("table");
+
+          // ---- Table Header ----
           const header = document.createElement("tr");
           ["Order", "Product", "Not Available At", "Action"].forEach((h) => {
             const th = document.createElement("th");
@@ -228,41 +253,48 @@
           table.appendChild(header);
 
           const location = getSelectedLocation();
+          const selectedLocations = Array.isArray(location)
+            ? location
+            : [location];
 
           selectedValues.forEach((sku, index) => {
             const row = document.createElement("tr");
 
+            // ---- Order ----
             const orderCell = document.createElement("td");
             orderCell.innerText = index + 1;
             row.appendChild(orderCell);
 
+            // ---- Product ----
             const productCell = document.createElement("td");
             productCell.innerText = sku;
 
-            // 🔴 Highlight product name in red if not available for selected location
             const product = latestProductsCache.find((p) => p.sku === sku);
-            if (
-              product &&
-              location &&
-              (!product.locations || !product.locations.includes(location))
-            ) {
+            let unavailableAt = [];
+
+            if (product) {
+              const productLocations = Array.isArray(product.locations)
+                ? product.locations
+                : [];
+              unavailableAt = selectedLocations.filter(
+                (loc) => !productLocations.includes(loc)
+              );
+            }
+
+            // 🔴 Red text if unavailable anywhere
+            if (unavailableAt.length > 0) {
               productCell.style.color = "red";
             }
 
             row.appendChild(productCell);
 
+            // ---- Not Available At ----
             const notAvailableCell = document.createElement("td");
-            if (
-              product &&
-              location &&
-              (!product.locations || !product.locations.includes(location))
-            ) {
-              notAvailableCell.innerText = location;
-            } else {
-              notAvailableCell.innerText = "";
-            }
+            notAvailableCell.innerText =
+              unavailableAt.length > 0 ? unavailableAt.join(", ") : "";
             row.appendChild(notAvailableCell);
 
+            // ---- Action ----
             const actionCell = document.createElement("td");
             const removeBtn = document.createElement("span");
             removeBtn.innerText = "Remove";
@@ -272,6 +304,7 @@
               selectedValues.splice(index, 1);
               extension.field.setData(selectedValues);
               renderSelectedTable();
+              validateProductAvailability();
             };
             actionCell.appendChild(removeBtn);
             row.appendChild(actionCell);
