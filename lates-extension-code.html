@@ -119,6 +119,7 @@
         const isProductField = extension.field.schema.display_name
           .toLowerCase()
           .includes("product");
+        const categoryField = config.field_type || "";
 
         const todayUTC = new Date();
         const day = String(todayUTC.getUTCDate()).padStart(2, "0");
@@ -158,7 +159,10 @@
           if (typeof savedFieldData[0] === "object" && savedFieldData[0].sku) {
             latestProductsCache = savedFieldData;
             selectedValues = savedFieldData.map((p) => p.sku);
-            console.log("✅ Restored full product data from field:", latestProductsCache);
+            console.log(
+              "✅ Restored full product data from field:",
+              latestProductsCache
+            );
           } else {
             selectedValues = savedFieldData;
             console.warn("⚠️ Found only SKU array in saved field data");
@@ -172,7 +176,10 @@
               typeof extension.entry.getData === "function"
                 ? extension.entry.getData() || {}
                 : (extension.entry || {}).entry || {};
-            if (entryData && Object.prototype.hasOwnProperty.call(entryData, "location")) {
+            if (
+              entryData &&
+              Object.prototype.hasOwnProperty.call(entryData, "location")
+            ) {
               const arr = normalizeToArray(entryData.location);
               return arr.length > 0 ? arr : null;
             }
@@ -196,7 +203,9 @@
             return;
           }
 
-          const selectedLocations = Array.isArray(location) ? location : [location];
+          const selectedLocations = Array.isArray(location)
+            ? location
+            : [location];
           const unavailableProducts = [];
 
           selectedValues.forEach((sku) => {
@@ -331,7 +340,15 @@
           else resultsList.classList.remove("has-results");
 
           data.forEach((item) => {
-            const displayValue = isProductField ? item.sku : item.code;
+            let displayValue = "";
+            if (isProductField) {
+              displayValue = item.sku;
+            } else if (categoryField.toLowerCase() === "category") {
+              displayValue = item.name; // show category name
+            } else {
+              displayValue = item.code; // default for other types
+            }
+
             const li = document.createElement("li");
             li.innerText = displayValue;
 
@@ -383,13 +400,22 @@
             .then((data) => {
               if (data.success && Array.isArray(data.data)) {
                 renderSearchResults(data.data);
+                statusMessage.innerText = ""; // clear previous errors
               } else {
+                const apiErrorMsg =
+                  data?.error?.message ||
+                  data?.message ||
+                  "Something went wrong while fetching data.";
+                statusMessage.innerText = `${apiErrorMsg}`;
                 renderSearchResults([]);
               }
             })
-            .catch((err) => {
-              console.error("❌ API Error:", err);
-              statusMessage.innerText = err.message;
+            .catch((error) => {
+              console.error("❌ API Error:", error);
+              statusMessage.innerText = `❌ ${
+                error.message || "Network error occurred."
+              }`;
+              renderSearchResults([]);
             });
         });
 
