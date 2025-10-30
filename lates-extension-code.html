@@ -136,6 +136,14 @@
         const selectedTableDiv = document.getElementById("selected-table");
         const searchWrapper = document.getElementById("search-wrapper");
 
+        // 👇 Add loader element dynamically
+        const loader = document.createElement("div");
+        loader.id = "loader";
+        loader.style.textAlign = "center";
+        loader.style.margin = "6px";
+        loader.style.display = "none";
+        resultsList.after(loader);
+
         if (!apiUrl) {
           statusMessage.innerText =
             "🚨 Configuration Error: 'api_url' is missing in field config.";
@@ -150,7 +158,7 @@
           return [];
         }
 
-        // 🧩 Restore saved field data (could be SKU array or object array)
+        // 🧩 Restore saved field data
         let savedFieldData = await extension.field.getData();
         let selectedValues = [];
         let latestProductsCache = [];
@@ -159,17 +167,12 @@
           if (typeof savedFieldData[0] === "object" && savedFieldData[0].sku) {
             latestProductsCache = savedFieldData;
             selectedValues = savedFieldData.map((p) => p.sku);
-            console.log(
-              "✅ Restored full product data from field:",
-              latestProductsCache
-            );
           } else {
             selectedValues = savedFieldData;
-            console.warn("⚠️ Found only SKU array in saved field data");
           }
         }
 
-        // 🧠 Get selected location (unchanged)
+        // 🧠 Get selected location
         function getSelectedLocation() {
           try {
             const entryData =
@@ -206,32 +209,6 @@
           const selectedLocations = Array.isArray(location)
             ? location
             : [location];
-          const unavailableProducts = [];
-
-          selectedValues.forEach((sku) => {
-            const product = latestProductsCache.find((p) => p.sku === sku);
-            if (product) {
-              const productLocations = Array.isArray(product.locations)
-                ? product.locations
-                : [];
-              const unavailableAt = selectedLocations.filter(
-                (loc) => !productLocations.includes(loc)
-              );
-              if (unavailableAt.length > 0) {
-                unavailableProducts.push({ sku, unavailableAt });
-              }
-            }
-          });
-
-          if (unavailableProducts.length > 0) {
-            const msgLines = unavailableProducts.map(
-              (p) => `${p.sku} not available at selected locations`
-            );
-            statusMessage.innerText = msgLines.join("\n");
-          } else {
-            statusMessage.innerText = "";
-          }
-
           renderSelectedTable();
         }
 
@@ -335,19 +312,19 @@
         }
 
         function renderSearchResults(data) {
+          if (!data) data = [];
+          if (!Array.isArray(data)) return;
+
           resultsList.innerHTML = "";
           if (data.length > 0) resultsList.classList.add("has-results");
           else resultsList.classList.remove("has-results");
 
           data.forEach((item) => {
             let displayValue = "";
-            if (isProductField) {
-              displayValue = item.sku;
-            } else if (categoryField.toLowerCase() === "category") {
-              displayValue = item.name; // show category name
-            } else {
-              displayValue = item.code; // default for other types
-            }
+            if (isProductField) displayValue = item.sku;
+            else if (categoryField.toLowerCase() === "category")
+              displayValue = item.name;
+            else displayValue = item.code;
 
             const li = document.createElement("li");
             li.innerText = displayValue;
@@ -374,49 +351,107 @@
 
             resultsList.appendChild(li);
           });
+
           extension.window.updateHeight();
         }
 
-        searchInput.addEventListener("input", function () {
-          const query = searchInput.value.toLowerCase();
-          resultsList.innerHTML = "";
+        // -------------------------
+        // 🔄 Dynamic Pagination Logic
+        // -------------------------
+        let currentPage = 1;
+        let totalResults = 0;
+        let perPage = 10;
+        let isLoading = false;
+        let lastQuery = "";
+        let resultsCache = [];
+
+        async function fetchResults(query, page = 1, append = false) {
+          if (isLoading) return;
+          isLoading = true;
+          loader.style.display = "block";
           statusMessage.innerText = "";
-          resultsList.classList.remove("has-results");
-          if (!query) return;
 
           const paramName = isProductField ? "sku" : "code";
           const fullUrl = `${apiUrl}?${paramName}=${encodeURIComponent(
             query
-          )}&currentPage=1&perPage=10`;
+          )}&currentPage=${page}&perPage=${perPage}`;
 
-          fetch(fullUrl, {
-            method: "GET",
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: `${encodedAuth}`,
-            },
-          })
-            .then((res) => res.json())
-            .then((data) => {
-              if (data.success && Array.isArray(data.data)) {
-                renderSearchResults(data.data);
-                statusMessage.innerText = ""; // clear previous errors
-              } else {
-                const apiErrorMsg =
-                  data?.error?.message ||
-                  data?.message ||
-                  "Something went wrong while fetching data.";
-                statusMessage.innerText = `${apiErrorMsg}`;
-                renderSearchResults([]);
-              }
-            })
-            .catch((error) => {
-              console.error("❌ API Error:", error);
-              statusMessage.innerText = `❌ ${
-                error.message || "Network error occurred."
-              }`;
-              renderSearchResults([]);
+          try {
+            const res = await fetch(fullUrl, {
+              method: "GET",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: `${encodedAuth}`,
+              },
             });
+            const data = await res.json();
+
+            if (data.success && Array.isArray(data.data)) {
+              totalResults = data.total || data.data.length;
+              perPage = data.perPage || 10;
+              currentPage = data.currentPage || page;
+
+              if (append) {
+                resultsCache = [...resultsCache, ...data.data];
+                renderSearchResults(resultsCache);
+              } else {
+                resultsCache = data.data;
+                renderSearchResults(resultsCache);
+              }
+            } else {
+              const apiErrorMsg =
+                data?.error?.message ||
+                data?.message ||
+                "Something went wrong while fetching data.";
+              statusMessage.innerText = apiErrorMsg;
+              renderSearchResults([]);
+            }
+          } catch (error) {
+            console.error("❌ API Error:", error);
+            statusMessage.innerText = `❌ ${
+              error.message || "Network error occurred."
+            }`;
+            renderSearchResults([]);
+          } finally {
+            isLoading = false;
+            loader.style.display = "none";
+          }
+        }
+
+        // 🔍 Instant Debounced Search
+        let searchDebounceTimer;
+
+        searchInput.addEventListener("input", function () {
+          const query = searchInput.value.toLowerCase();
+          resultsList.innerHTML = "";
+          resultsList.classList.remove("has-results");
+          statusMessage.innerText = "";
+          loader.style.display = "none";
+
+          // Clear the previous timer
+          clearTimeout(searchDebounceTimer);
+
+          if (!query) return;
+
+          // Wait 300ms before firing API (prevents too many calls)
+          searchDebounceTimer = setTimeout(() => {
+            lastQuery = query;
+            currentPage = 1;
+            totalResults = 0;
+            fetchResults(query, 1, false);
+          }, 300);
+        });
+
+        // 🧭 Infinite Scroll
+        resultsList.addEventListener("scroll", function () {
+          if (
+            resultsList.scrollTop + resultsList.clientHeight >=
+              resultsList.scrollHeight - 10 &&
+            !isLoading &&
+            resultsCache.length < totalResults
+          ) {
+            fetchResults(lastQuery, currentPage + 1, true);
+          }
         });
 
         renderChips();
