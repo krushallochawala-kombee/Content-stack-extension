@@ -331,6 +331,17 @@
 
             li.onclick = async function () {
               const value = isProductField ? item.sku : item.code;
+
+              // ✅ Get limit from config (default to 100 if not provided)
+              const selectionLimit = config.limit ? Number(config.limit) : 100;
+
+              // ✅ Enforce product limit if it's a product field
+              if (isProductField && selectedValues.length >= selectionLimit) {
+                statusMessage.innerText = `You can only select up to ${selectionLimit} products.`;
+                extension.window.updateHeight();
+                return;
+              }
+
               if (!selectedValues.includes(value)) {
                 selectedValues.push(value);
 
@@ -344,6 +355,7 @@
                   renderChips();
                 }
               }
+
               searchInput.value = "";
               resultsList.innerHTML = "";
               resultsList.classList.remove("has-results");
