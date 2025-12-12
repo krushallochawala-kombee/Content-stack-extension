@@ -110,6 +110,7 @@
     <script>
       ContentstackUIExtension.init().then(async function (extension) {
         console.log("🧩 Extension initialized:", extension);
+        console.log(extension.entry.getField("location"))
         extension.window.updateHeight();
 
         const config = extension.field.schema.config || {};
@@ -146,7 +147,7 @@
 
         if (!apiUrl) {
           statusMessage.innerText =
-            "🚨 Configuration Error: 'api_url' is missing in field config.";
+            "Configuration Error: 'api_url' is missing in field config.";
           extension.window.updateHeight();
           return;
         }
@@ -162,23 +163,32 @@
         let savedFieldData = await extension.field.getData();
         let selectedValues = [];
         let latestProductsCache = [];
+        let categoryObjectsCache = [];
 
         if (Array.isArray(savedFieldData) && savedFieldData.length > 0) {
-          if (typeof savedFieldData[0] === "object" && savedFieldData[0].sku) {
-            latestProductsCache = savedFieldData;
-            selectedValues = savedFieldData.map((p) => p.sku);
+          if (typeof savedFieldData[0] === "object") {
+            if (savedFieldData[0].sku) {
+              // product objects
+              latestProductsCache = savedFieldData;
+              selectedValues = savedFieldData.map(p => p.sku);
+            } else if (savedFieldData[0].code) {
+              // category objects
+              categoryObjectsCache = savedFieldData;
+              console.log("categoryObjectsCache",categoryObjectsCache)
+              selectedValues = savedFieldData.map(c => c.code);
+            }
           } else {
             selectedValues = savedFieldData;
           }
         }
 
+
         // 🧠 Get selected location
         function getSelectedLocation() {
           try {
-            const entryData =
-              typeof extension.entry.getData === "function"
-                ? extension.entry.getData() || {}
-                : (extension.entry || {}).entry || {};
+
+            if(extension.entry.getData === "function"){
+              const entryData = extension?.entry?.getData();
             if (
               entryData &&
               Object.prototype.hasOwnProperty.call(entryData, "location")
@@ -187,10 +197,59 @@
               return arr.length > 0 ? arr : null;
             }
             return null;
+            }else{
+              const schema = extension?.entry?.content_type?.schema || [];  
+              console.log('schema',schema);
+              // Find the location field from schema
+              const locationField = schema.find(
+                (field) => field.uid === "location"
+              );
+              console.log('locationField',locationField);
+
+              if (!locationField) {
+                return null;
+              }
+              // Get value from the field
+              const locationValue = locationField.value || [];
+              // Return null if empty
+              return locationValue.length > 0 ? locationValue : null;
+            }
+
+            
           } catch (err) {
             console.error("❌ Error in getSelectedLocation:", err);
             return null;
           }
+        }
+
+        renderChips();
+        renderSelectedTable();
+        validateProductAvailability();
+
+        // 👀 Real-time Location Field Change Detection
+        try {
+          const locationField = extension.entry.getField("location");
+          console.log("locationField",locationField)
+
+          if (
+            locationField
+          ) {
+            // locationField.onValueChanged(async (newValue) => {
+            //   console.log("📍 Location field updated:", newValue);
+
+            //   // Optional debounce to prevent flicker
+            //   clearTimeout(window.__locationChangeTimer);
+            //   window.__locationChangeTimer = setTimeout(() => {
+            //     validateProductAvailability();
+            //   }, 300);
+            // });
+          } else {
+            console.warn(
+              "⚠️ Location field not found or onValueChanged unavailable."
+            );
+          }
+        } catch (err) {
+          console.error("Error initializing location listener:", err);
         }
 
         function validateProductAvailability() {
@@ -343,6 +402,7 @@
               }
 
               if (!selectedValues.includes(value)) {
+                
                 selectedValues.push(value);
 
                 if (isProductField) {
@@ -350,7 +410,13 @@
                   await extension.field.setData(latestProductsCache);
                   renderSelectedTable();
                   validateProductAvailability();
-                } else {
+                } else if(categoryField.toLowerCase() === "category") {
+                  // ⭐ Save full category object
+                  categoryObjectsCache.push(item);
+                  await extension.field.setData(categoryObjectsCache);
+                  renderChips();
+                } 
+                else {
                   await extension.field.setData(selectedValues);
                   renderChips();
                 }
@@ -466,31 +532,7 @@
           }
         });
 
-        renderChips();
-        renderSelectedTable();
-        validateProductAvailability();
-
-        if (isProductField) {
-          extension.entry.onChange(() => {
-            validateProductAvailability();
-          });
-        }
-
         searchWrapper.addEventListener("click", () => searchInput.focus());
-        // extension.field.onValueChanged(function (newValue) {
-        //   if (Array.isArray(newValue) && newValue.length > 0) {
-        //     if (typeof newValue[0] === "object" && newValue[0].sku) {
-        //       latestProductsCache = newValue;
-        //       selectedValues = newValue.map((p) => p.sku);
-        //     } else {
-        //       selectedValues = newValue;
-        //     }
-        //   } else {
-        //     selectedValues = [];
-        //     latestProductsCache = [];
-        //   }
-        //   renderChips();
-        // });
       });
     </script>
   </body>
