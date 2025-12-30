@@ -223,33 +223,17 @@
 
           // console.log("extension.entry", extension.entry);
           // console.log("locationValue", extension.entry._changedData);
-          // console.log("locationValue.location", extension.entry._changedData?.location);
-
-
           const schema = extension?.entry?.content_type?.schema || [];
-          // console.log("schema", schema);
-          const locationField = schema.find((field) => field.uid === "location");
-          // console.log("locationField", locationField);
-          // console.log("locationField.value", locationField.value);
-          // console.log("locationField.value.length > 0", locationField.value.length > 0);
-          // console.log("locationField.value.length > 0 ? locationField.value : null", locationField.value.length > 0 ? locationField.value : null);
-          if (!locationField) return null;
-          // console.log("locationField is not null"); 
 
-          const locationValue = locationField.value || [];
+          const locationField = schema.find((field) => field.uid === "location");
+          if (!locationField) return null;
+          console.log("locationField is not null");
+
+          const locationValue = extension?.entry?._changedData?.location || [];
           return locationValue.length > 0 ? locationValue : null;
           // Try method 1: getData function
           if (typeof extension?.entry?.getData === "function") {
-            // console.log("extension?.entry?.getData === function");
-            // console.log("extension.entry.getData", extension.entry.getData);
-            // console.log("extension.entry.getData()", extension.entry.getData());
-            // console.log("typeof extension.entry.getData === \"function\"", typeof extension.entry.getData === "function");
             const entryData = extension.entry.getData();
-            // console.log("entryData", entryData);
-            // console.log("Object.prototype.hasOwnProperty.call(entryData, 'location')", Object.prototype.hasOwnProperty.call(entryData, "location"));
-            // console.log("utils.normalizeToArray(entryData.location)", utils.normalizeToArray(entryData.location));
-            // console.log("utils.normalizeToArray(entryData.location).length > 0", utils.normalizeToArray(entryData.location).length > 0);
-            // console.log("utils.normalizeToArray(entryData.location).length > 0 ? utils.normalizeToArray(entryData.location) : null", utils.normalizeToArray(entryData.location).length > 0 ? utils.normalizeToArray(entryData.location) : null);
             if (
               entryData &&
               Object.prototype.hasOwnProperty.call(entryData, "location")
@@ -287,21 +271,16 @@
           const { config, extension } = state;
 
           const productTypeField = extension?.entry?.getField("product_type");
-          console.log("productTypeField", productTypeField);
           if (!productTypeField) {
             return config.limit ?? CONSTANTS.DEFAULT_LIMIT;
           }
 
           const productTypeValue = extension?.entry?._changedData?.product_type;
-          console.log("productTypeValue", productTypeValue);
 
           // enum = 2 → unlimited
           if (productTypeValue === 2) {
             return null;
           }
-
-          console.log("config.limit", config.limit);
-          console.log("CONSTANTS.DEFAULT_LIMIT", CONSTANTS.DEFAULT_LIMIT);
 
           return config.limit
             ? Number(config.limit)
@@ -362,7 +341,6 @@
 
         const selectionLimit = await utils.getSelectionLimit();
 
-        console.log("selectionLimit", selectionLimit);
 
         const value = selectedValues[index];
 
@@ -535,9 +513,6 @@
         const value = isProductField ? item.sku : item.code;
         const selectionLimit = await utils.getSelectionLimit();
 
-        console.log("selectionLimit", selectionLimit);
-        console.log("selectedValues.length", selectedValues.length);
-
 
         if (selectedValues.includes(value)) {
           // Already selected - cancel requests and close the list
@@ -590,24 +565,24 @@
           state.abortController.abort();
           state.abortController = null;
         }
-        
+
         // Set flag to prevent results from showing
         state.shouldShowResults = false;
-        
+
         // Clear search and close list immediately
         elements.searchInput.value = "";
         elements.resultsList.innerHTML = "";
         elements.resultsList.classList.remove("has-results");
-        
+
         // Reset scroll position
         elements.resultsList.scrollTop = 0;
-        
+
         // Clear results cache and reset pagination
         state.resultsCache = [];
         state.currentPage = 1;
         state.totalResults = 0;
         state.lastQuery = "";
-        
+
         // Clear any pending API calls
         if (state.isLoading) {
           state.isLoading = false;
