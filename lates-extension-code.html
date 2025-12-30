@@ -107,6 +107,41 @@
       background-color: #f2f2f2;
     }
 
+    .table-header-wrapper {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-top: 10px;
+    }
+
+    .refresh-button {
+      background: #3399ff;
+      border: none;
+      border-radius: 4px;
+      color: white;
+      cursor: pointer;
+      padding: 6px 12px;
+      font-size: 14px;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      transition: background-color 0.2s;
+    }
+
+    .refresh-button:hover {
+      background: #2980b9;
+    }
+
+    .refresh-button:active {
+      background: #1f5f8b;
+    }
+
+    .refresh-icon {
+      width: 16px;
+      height: 16px;
+      display: inline-block;
+    }
+
     tr.unavailable {
       background-color: #fff3f3;
     }
@@ -628,6 +663,29 @@
           return;
         }
 
+        // Create table header wrapper with refresh button
+        const headerWrapper = document.createElement("div");
+        headerWrapper.className = "table-header-wrapper";
+
+        const tableTitle = document.createElement("h3");
+        tableTitle.innerText = "Selected Products";
+        tableTitle.style.margin = "0";
+        tableTitle.style.fontSize = "16px";
+
+        const refreshButton = document.createElement("button");
+        refreshButton.className = "refresh-button";
+        refreshButton.innerHTML = `
+          <svg class="refresh-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M23 4v6h-6M1 20v-6h6M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+          </svg>
+          Refresh
+        `;
+        refreshButton.onclick = () => renderer.refreshTable();
+
+        headerWrapper.appendChild(tableTitle);
+        headerWrapper.appendChild(refreshButton);
+        elements.selectedTableDiv.appendChild(headerWrapper);
+
         const table = document.createElement("table");
         const header = document.createElement("tr");
 
@@ -651,6 +709,19 @@
 
         elements.selectedTableDiv.appendChild(table);
         utils.updateHeight();
+      },
+
+      /**
+       * Refreshes the table with all mapping functionality
+       */
+      refreshTable() {
+        // Re-render the table
+        renderer.renderSelectedTable();
+        
+        // Re-validate product availability
+        validator.validateProductAvailability();
+        
+        console.log("Table refreshed");
       },
 
       /**
